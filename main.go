@@ -242,10 +242,17 @@ func sendLargeMessage(bot *tgbotapi.BotAPI, chatID int64, text string) {
 }
 
 func main() {
+	var bot *tgbotapi.BotAPI
+	var err error
 	log.Println("Starting bot...")
-	bot, err := tgbotapi.NewBotAPI(BOT_TOKEN)
-	if err != nil {
-		log.Fatalf("Bot init failed: %v", err)
+	// Retry loop for bot initialization
+	for {
+		bot, err = tgbotapi.NewBotAPI(BOT_TOKEN)
+		if err == nil {
+			break
+		}
+		log.Printf("Bot init failed: %v. Retrying in 5 seconds...", err)
+		time.Sleep(5 * time.Second) // Retry after 5 seconds
 	}
 
 	// ensure polling works

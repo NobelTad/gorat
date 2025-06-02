@@ -157,7 +157,7 @@ func saymsg(text string) {
 //###################################################################################################333
 
 const (
-	BOT_TOKEN     = "7977897301:AAFJsQcl0LkXWxvm1W3gza7J3dxBo29NQZc"
+	BOT_TOKEN     = ""
 	STARTUP_CHAT  = 5441972884
 	IMG_DIR       = "imgdat"
 	MAX_MSG_BYTES = 4096
